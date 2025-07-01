@@ -6,7 +6,9 @@ This repo contains the following scripts and data:
 
 * `get_comic_timestamps.py` : Parses RSS feed (`public_feed.json`) to create a table of comics with timestamps associated with them. Saves as `tables/public_feed_comics_timestamps.xlsx`. Includes data for N=1139 comics. Filtered with the intention to only capture items a person may be searching (eg, comic names or franchises). 
 
-* `get_comic_bullets.py` : Parses RSS feed (`public_feed.json`) to create a table of all comics named in an episode. Merges in comics with timestamps. Saves as `tables/public_feed_comics_bullets.xlsx`. Includes N=4341 comics.
+* `get_comic_bullets.py` : Parses RSS feed (`public_feed.json`) to create a table of all comics named in an episode. Merges in comics with timestamps. Saves as `tables/public_feed_comics_ALL.xlsx`. Includes N=4341 comics.
+
+* `dedup_comics.py` : Checks for within-episode comic duplicates in `tables/public_feed_comics_ALL.xlsx` and creates a file that can be used to manually check duplicates.
 
 
 More details of each of these files and the data extraction process are included below:
