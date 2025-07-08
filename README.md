@@ -16,16 +16,32 @@ More details of each of these files and the data extraction process are included
 # public_feed_episodes
 The RSS feed returns a JSON / dictionary of episode details. All items (episodes, minisodes, etc) are included. Extracted properties and associated fields are as follows. All fields are strings unless noted otherwise.
 
-* **title**: From episode['title']
-* **subtitle**: From episode['subtitle']
-* **has_timestamps**: Boolean, indicating whether or not the word “timestamp” or the string “00:00:00 appears in the episode’s full_summary (see below). 
-* **date**: from episode['published']
-* **authors**: From episode['authors'][0]['name']. Note: string includes commas.
-* **keywords**: From details['tags']. Converted from list to string. Includes commas.
-* **simplecast_url**: Link to show audio. From episode['links'][0]['href']
-* **episode_number**: Estimated episode number. When possible, taken from episode['itunes_episode']. Then, when possible, extracted as numerical entity within episode['title']. Note that itunes_episode seems to be systematically higher than those listed in episode title. As last effort, estimate episode number as ​​78 - int(i) + 400.  Where i is the entry-order of the current episode (newest = 0).
-* **full_summary**: From episode['content'][0]['value']. Minimal parsing to remove HTML tags and special characters. Line breaks replaced with space (‘ ‘).
+* **title**: From `episode['title']`
+* **subtitle**: From `episode['subtitle']`
+* **has_timestamps**: Boolean, indicating whether or not the strings “timestamp”, "timecodes", or “00:00:00" appears in the episode’s `full_summary` (see below). 
+* **date**: from `episode['published']`
+* **people**: Hosts and guests of a particular episode. Full name when available. Comma-separated string alphabetized by last name when possible. Extracted from `full_summary` (see below) with full names supplemented by data from `episode['authors'][0]['name']`.
+* **keywords**: From `details['tags']`. Converted from list to string. Includes commas.
+* **simplecast_url**: Link to show audio. From `episode['links'][0]['href']`
+* **producer**: Full name of credited Producer, if available. Extracted from `full_summary` (see below).
+* **prooflistener**: Full name of credited Prooflistener, if available. Extracted from `full_summary` (see below). 
+* **editor**: Full name of credited Editor, if available. Extracted from `full_summary` (see below).
+* **episode_number**: Estimated episode number. When possible, taken from `episode['itunes_episode']`. Then, when possible, extracted as numerical entity within `episode['title']`. Note that `itunes_episode` seems to be systematically higher than those listed in episode title. As last effort, estimate episode number as ​​78 - int(i) + 400.  Where `i` is the entry-order of the current episode (newest = 0). This is a poor estimate.
+* **full_summary**: For older episodes (Episode 128 and before), this is taken from `episode['summary']`. For newer episodes, from `episode['content'][0]['value']`. Minimal parsing to remove HTML tags and special characters. Line breaks replaced with space (‘ ‘).
 *  **show_id**: From episode['id']. If id is a url (older episodes) retrieve only numerical value after ‘?p=’.
+
+
+Additional notes: 
+Names of `people` on episode extracted from `full_summary` using named entity recognition (in Spacy). This was challenging because most summaries include multiple named `PERSON` entities who were not necessarily on the show. This includes creators (sometimes special guests, other times non-guest creators whose work was discussed), as well as named comic entities, e.g. "Wonder Woman" and "Scott Summers" who, as far as I know, have never appeared in person on the show. Basic heuristic for extraction was as follows:
+
+* Scan through `full_summary` sentence by sentence. Searching for named entities. Save entities labeled as `PERSON`.
+* If we have already found at least 3 named `PERSON` entities, stop searching later sentences. Guests/hosts were most frequently the first 3 named people in summary.
+* If you encounter a named entity that is a `WORK_OF_ART`, `PRODUCT`, or `ORG`, stop searching for additional named entities mid-sentence. Oftentimes (but not always) this indicated a shift to naming creators not necessarily on the show.
+* If only a first name is used (typical for show regulars), compare to a dictionary of {first_name: full_name}. Dictionary constructed using the `episode['authors'][0]['name']` field, retaining all names which appeared at least 3 times across episodes. This field was missing data for all older episodes and therefore could not be used to determine who was on the show, but could be used to identify show regulars.
+
+All extracted people entries were then manually reviewed against show description for accuracy.
+
+
 
 # public_feed_comic_timestamps
 If an episode of the public RSS feed contains a timestamp (has_timestamp=1), full_summary is parsed to extract timestamp and named items. Numerous exceptions included after field list. All fields are strings.
@@ -67,16 +83,12 @@ Two particular titles of note:
 * “CONCENTRATED BOOMER ENERGY: DO NOT READ” was replaced with the comic title “Cancel America #1”. I left this in, but one might be inclined to drop it altogether.
 * “Batman Fell In Love With a Ghost Lady” was left as-is. I’m pretty sure this refers to Batman #227 (Dec 1970), but the art from the comic (in which Batman does fall in love with a ghost) doesn’t seem to match the episode art, so I wasn’t sure.
 
-There are no doubt other items in this list which are not properly comic titles or titles of franchises, but this is a first pass.
-
 Additional notes: 
 * I realized after doing this that the way I parsed the timestamps + text doesn’t work for older episodes:
-  * Episodes 128 and earlier use ‘*’ instead of <li> bullets
+  * Episodes 128 and earlier use ‘*’ instead of \<li\> bullets
   * Some episodes, possibly just #85, put the text before the timestamp. 
 I can re-do the parse to account for this, but the text associated with older episode timestamps is frequently not comic titles, so I’m not sure it's worth doing.
 
-
-* Some of the earlier episodes say ‘timecodes’ instead of ‘timestamps’ – but I think the stamps themselves should have been picked up by the “or 00:00:00. I put that in cause some of the posts didn’t say ‘timestamps’ at all. So, this shouldn’t make a difference, but might want to double check.
 
 * I left all capitalization as-is. Titles not intended to be in all-caps could be auto-turned into Title Case, but that will mess up titles intended to be in all-caps. May want to look more closely to determine if manual or automated is less trouble
 
@@ -95,7 +107,7 @@ _Extracting comic names from summary_
 **Step 1: Identifying episode segments**
 Episode summaries typically include multiple bulleted lists. For example, (1) Timestamps, (2) Comics Discussed, and (3) Relevant Links. We consider any text followed by a bulleted list to be a “segment.” 
 
-For the purposes of this list, we want to ignore the “Timestamp” segment (merged in later from public_feed_comic_timestamps) as well as any non-comic segments (eg, “Relevant Links”). To identify relevant segments, first all text appearing in bold (<strong>) was extracted from every public episode. Segment names typically, but not always, appear in bold within the episode summaries. These possible segment names were extracted and manually reviewed to identify those relating to comics. This resulted in about 45 unique comic-related segment names across public episodes. Since this wasn’t necessarily a complete list of all comic-related segment names (eg, names that did not appear in bold), this list was used to develop a search string for segment names. Ultimately, a piece of text (whether bold or not) was assumed to be introducing a comic-related segment if it included any of the following terms:
+For the purposes of this list, we want to ignore the “Timestamp” segment (merged in later from public_feed_comic_timestamps) as well as any non-comic segments (eg, “Relevant Links”). To identify relevant segments, first all text appearing in bold (\<strong\>) was extracted from every public episode. Segment names typically, but not always, appear in bold within the episode summaries. These possible segment names were extracted and manually reviewed to identify those relating to comics. This resulted in about 45 unique comic-related segment names across public episodes. Since this wasn’t necessarily a complete list of all comic-related segment names (eg, names that did not appear in bold), this list was used to develop a search string for segment names. Ultimately, a piece of text (whether bold or not) was assumed to be introducing a comic-related segment if it included any of the following terms:
 
 * discussed (Note: resulted in some false positives, these were manually removed)
 * comic picks
@@ -118,10 +130,10 @@ For the purposes of this list, we want to ignore the “Timestamp” segment (me
 **Step 2: Extracting comic names**
 Once a comic-related segment is identified, the following block of text is parsed for comic names.
 Episodes 128 and earlier: script extracts text following a ‘*’ character
-Newer episodes: script extracts text in <li> tags. Note: if the list includes a sublist, only sub items are included. 
+Newer episodes: script extracts text in \<li\> tags. Note: if the list includes a sublist, only sub items are included. 
 
 **Step 3: Merging with timestamps**
-The table of extracted comic items was then stacked with the cleaned table of comics with timestamps. For rows where the show_id and comic were an exact match, only the last row (from the timestamps table) was retained. Note that there are likely still some duplicates in this table as comics are not always listed the same way in the timestamps segment and other segments. 
+The table of extracted comic items was then stacked with the cleaned table of comics with timestamps. For rows where the show_id and comic were an exact match, only the last row (from the timestamps table) was retained. Comic names within episodes were then dedupted using `dedup_comics.py`.
 
 Additional notes:
 * At least one episode has the mentioned books in the links section. These would be excluded given the process above.

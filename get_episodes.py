@@ -3,13 +3,60 @@ import re
 import pandas as pd
 from bs4 import BeautifulSoup
 
-def parse_episodes(episodes):
-    # extract data from each episode
-    # save as list of row data
+
+#### set up text matching
+import spacy
+from spacy.matcher import Matcher
+from spacy.language import Language
+from spacy.tokens.span import Span
+
+nlp = spacy.load("en_core_web_trf")
+matcher = Matcher(nlp.vocab)
+
+@Language.component("no_possesive")
+def no_possesive(doc):
+    doc.ents = _no_possesive_generator(doc)
+    return doc
+
+def _no_possesive_generator(doc):
+    """Yields non possessive versions of the given document's entities."""
+    for ent in doc.ents:
+        if ent.text.endswith("'s") or ent.text.endswith("’s"):  # Jean Grey's
+            yield Span(doc, ent.start, ent.end-2, label=ent.label)
+        elif ent.text.endswith("s'") or ent.text.endswith("’s"): # Cyclops'
+            yield Span(doc, ent.start, ent.end-1, label=ent.label)
+        else:
+            yield ent
+            
+nlp.add_pipe('no_possesive')
+
+def init_matcher():
+    # for credits
+    matcher.add("Producer", [[{"LOWER": "producer"}],
+                             [{"LOWER": "produced"}]
+                            ])
+    matcher.add("Prooflistener", [[{"LOWER": "prooflistener"}]])
+    matcher.add("Editor", [[{"LOWER": "editor"}],
+                           [{"LOWER": "edited"}]
+                          ])
+    
+    return
+
+
+def parse_episodes(rss):
+    ''' 
+    Inital parse
+
+    Extract data from each episode. Save as list of row data for dataframe
+
+    Input: JSON of RSS feedt
+    Output: list of rows
+    '''
+
     
     rows = list()
 
-    for i, details in episodes.items():
+    for i, details in rss.items():
         row = list()
 
         #### easy meta data
@@ -35,9 +82,16 @@ def parse_episodes(episodes):
 
 
         ##### clean summary text
-        summary_raw = details['content'][0]['value'] 
 
-        # if we have paragraph structure, clean each paragraph
+        ## new episodes
+        if int(i) < 460:
+            summary_raw = details['content'][0]['value']
+            
+        # older episodes    
+        elif int(i) >= 460:
+            summary_raw = details['summary']
+
+        # if we have html, clean each paragraph
         if '<p>' in summary_raw:
             summary = ''
             soup = BeautifulSoup(summary_raw, features='html.parser')
@@ -62,7 +116,7 @@ def parse_episodes(episodes):
             summary = ' '.join(words)
 
         ### determine if episode has timestamps 
-        if 'timestamp' in summary.lower() or '00:00:00' in summary_raw:
+        if 'timestamp' in summary.lower() or 'timecodes' in summary.lower() or '00:00:00' in summary_raw:
             has_timestamps = 1
         else:
             has_timestamps = 0
@@ -100,18 +154,10 @@ def parse_episodes(episodes):
         rows.append(row)
         
     return rows
-    
-    
 
-def main():
-    # load rss data
-    with open('public_feed.json', 'r') as fp:
-        episodes = json.loads(fp.read())
-    
-    print(f'{len(episodes)} episodes pulled from RSS feed')
-    
+def initial_parse(rss):
     # extract data
-    rows = parse_episodes(episodes)
+    rows = parse_episodes(rss)
     
     # table header
     header = ['title',
@@ -128,12 +174,187 @@ def main():
     # turn to dataframe
     df = pd.DataFrame(rows, columns=header)
     
-    # save data
+    print(f'Initial parse completed.')
+
+    return df
+
+#### Functions for extracting names from summary
+def get_count(df, col):
+    
+    # count times name appears in col
+    counts = dict()
+
+    for i, name_list in df[col].items():
+        for n in name_list.split(','):
+            name = n.strip()
+
+            counts.setdefault(name, 0)
+            counts[name] += 1
+            
+    return counts
+
+
+def get_people(x, full):
+    '''
+    Extract host names from summary
+    '''
+    
+    # people who appeared in this episode
+    people = set()
+    
+    searching = True
+    
+    for sent in x.sents:            
+        if len(people) >= 3:
+            # if we've already found 3 guests, we don't need to keep looking
+            searching = False
+            
+        # special case of first sentence with non-guest name
+        if 'donate in support of the protests calling for racial justice' not in sent.text:
+
+            # search entities in this sentence
+            for ent in sent.ents:
+                if searching:
+
+                    # if we have people and encounter a creative work, stop searching for names
+                    if len(people) > 0 and ent.label_ in ['WORK_OF_ART', 'PRODUCT', 'ORG']:
+                        searching = False
+                        break
+
+                    # Assume entities tagged PERSON are, in fact, people
+                    is_person = True
+                    
+                    if ent.label_ == 'PERSON':
+                        name = ent.text
+                        names = name.split()
+
+                        # if we only have one name, try to get full
+                        if len(names)==1:
+                            try:
+                                name = full[names[0]]
+
+                            # if not in our dictionary, don't need to keep
+                            except:
+                                is_person = False
+
+                        if is_person:
+                            people.add(name)
+                            
+                            
+    # sort found people by last name
+    people_dict = dict((name.split()[-1], name) for name in people)
+    people_sorted = [name for l,name in sorted(people_dict.items())]
+
+    return ', '.join(people_sorted)
+
+
+def get_crew(x):
+    '''
+    Create dictionary of credited roles + names with that credit
+    '''
+    crew = dict()
+    
+    # look for matches, using custom matcher
+    matches = matcher(x)
+        
+    # span to search for name
+    search = dict()
+
+    for match_id, start, end in matches:
+        role = nlp.vocab.strings[match_id] # title of pattern/role
+
+        search[role] = end # start looking for name after this role has been named
+
+    for k, v in search.items():
+        name = x[v:].ents[0] # first entity mentioned after role
+        crew[k] = name.text 
+        
+    return crew
+
+
+def parse_crew(df):
+    df['crew'] = df['doc'].apply(lambda x: get_crew(x))
+    df['producer'] = df['crew'].apply(lambda x: x['Producer'] if 'Producer' in x.keys() else '')
+    df['editor'] = df['crew'].apply(lambda x: x['Editor'] if 'Editor' in x.keys() else '')
+    df['prooflistener'] = df['crew'].apply(lambda x: x['Prooflistener'] if 'Prooflistener' in x.keys() else '')
+    
+    # updates dataframe in place, do not need to return anything
+    return 
+    
+
+def main():
+    # load rss data
+    with open('public_feed.json', 'r') as fp:
+        rss = json.loads(fp.read())
+    
+    print(f'{len(rss)} episodes pulled from RSS feed')
+    
+    # inital parse of data
+    episodes = initial_parse(rss)
+
+    # Get names of regulars
+    counts = get_count(episodes, 'authors')
+
+    # create dict of first_name : full_name
+    full = dict()
+
+    for name_list in episodes['authors']:
+        for n in name_list.split(','):
+            name = n.strip()
+            
+            if counts[name] > 2:
+                names = name.split()
+
+                full[names[0]] = name
+            
+    # Rene Rodriguez --> René Rodriguez
+    full['Rene'] = 'René Rodriguez'
+
+    # inialize matching search
+    init_matcher()
+
+    # convert raw text to spacy object
+    print('Creating Spacy documents')
+    episodes['doc'] = [nlp(doc) for doc in episodes['full_summary']]
+
+    # extract people and crew roles from text
+    episodes['people'] = episodes['doc'].apply(lambda x: get_people(x, full))
+    episodes['crew'] = episodes['doc'].apply(lambda x: get_crew(x))
+    parse_crew(episodes)
+
+    #### missing people
+    # some older episodes name people in subtitle, not in summary
+    sub = episodes[episodes['people']==''].copy()
+
+    sub['doc'] = [nlp(doc) for doc in sub['subtitle']]
+    sub['people'] = sub['doc'].apply(lambda x: get_people(x, full))
+
+    # get crew 
+    parse_crew(sub)
+
+
+    # replace episode values with sub values
+    for i, row in sub.iterrows():
+        episodes.loc[i, 'people'] = row['people']
+        episodes.loc[i, 'producer'] = row['producer']
+        episodes.loc[i, 'editor'] = row['editor']
+        episodes.loc[i, 'prooflistener'] = row['prooflistener']
+      
+
+    # save to file for manual review
+    cols = ['title', 'subtitle', 'has_timestamps', 'date', 'people', 'keywords',
+            'simplecast_url', 'producer', 'prooflistener', 'editor', 
+            'episode_number', 'full_summary', 'show_id']
+
+    episodes = episodes[cols]
+
+
     # save to excel because otherwise excel gets snipy about character encoding
-    df.to_excel('tables/public_feed_episodes.xlsx', 
+    episodes .to_excel('tables/public_feed_episodes.xlsx', 
            index=False)
     
-    print(f'Data from {len(df)} episodes extracted and saved to file')
+    print(f'Data from {len(episodes)} episodes extracted and saved to file')
+
     
     
 if __name__ == "__main__":
