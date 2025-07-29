@@ -10,10 +10,10 @@ from spacy.matcher import Matcher
 from spacy.language import Language
 from spacy.tokens.span import Span
 
-nlp = spacy.load("en_core_web_trf")
+nlp = spacy.load('en_core_web_trf')
 matcher = Matcher(nlp.vocab)
 
-@Language.component("no_possesive")
+@Language.component('no_possesive')
 def no_possesive(doc):
     doc.ents = _no_possesive_generator(doc)
     return doc
@@ -32,12 +32,16 @@ nlp.add_pipe('no_possesive')
 
 def init_matcher():
     # for credits
-    matcher.add("Producer", [[{"LOWER": "producer"}],
-                             [{"LOWER": "produced"}]
+    matcher.add("Executive Producer", [[{"LOWER": 'executive'},
+                                        {"LOWER": 'producer'}]
                             ])
-    matcher.add("Prooflistener", [[{"LOWER": "prooflistener"}]])
-    matcher.add("Editor", [[{"LOWER": "editor"}],
-                           [{"LOWER": "edited"}]
+
+    matcher.add("Producer", [[{"LOWER": 'producer'}],
+                             [{"LOWER": 'produced'}]
+                            ])
+    matcher.add("Prooflistener", [[{"LOWER": 'prooflistener'}]])
+    matcher.add("Editor", [[{"LOWER": 'editor'}],
+                           [{"LOWER": 'edited'}]
                           ])
     
     return
@@ -249,34 +253,88 @@ def get_people(x, full):
 
 
 def get_crew(x):
-    '''
-    Create dictionary of credited roles + names with that credit
-    '''
     crew = dict()
     
-    # look for matches, using custom matcher
+    # look for matches
     matches = matcher(x)
-        
-    # span to search for name
-    search = dict()
+    
+    # save spans for each match
+    spans = dict()
 
     for match_id, start, end in matches:
-        role = nlp.vocab.strings[match_id] # title of pattern/role
+        role = nlp.vocab.strings[match_id] # title of pattern
+        found = True
 
-        search[role] = end # start looking for name after this role has been named
+        # only keep 'producer' span if not exec producer
+        if role == 'Producer':
+            if 'Executive Producer' in spans.keys():
+                ep_end = spans['Executive Producer'][1]
 
-    for k, v in search.items():
-        name = x[v:].ents[0] # first entity mentioned after role
-        crew[k] = name.text 
+                if end <= ep_end:
+                    found = False
+
+        if found:
+            spans[role] = [start, end]
+    
+    # ensure spans are in order of text
+    spans = dict(sorted(spans.items(), key=lambda item: item[1]))
+    
+    # search for names between role spans
+    search = dict()
+    old_role = ''
+
+    for role, (start, end) in spans.items():
+
+        # search for the name in this role after role span ends
+        search.setdefault(role, list())
+        search[role].append(end)
+
+        # if we have an old role, end the last search
+        if old_role != '':
+            search[old_role].append(start)
+
+        # save old_rold
+        old_role = role
+        
+    # extract names
+    for role, span in search.items():
+        crew.setdefault(role, list())
+        
+        if len(span) < 2:
+            span.append(-1) # end of string
+
+        for ent in x[span[0]:span[1]].ents:
+            if ent.label_=='PERSON':
+                crew[role].append(ent.text)        
         
     return crew
 
 
+def merge_producers(ep, prod):
+    producers = list()
+
+    for e, p, in zip(ep, prod):
+        if e != '':
+            item = f'Executive Producer: {e}, Producer(s): {p}'
+        else:
+            item = p
+
+        producers.append(item)
+        
+    return producers
+
 def parse_crew(df):
     df['crew'] = df['doc'].apply(lambda x: get_crew(x))
-    df['producer'] = df['crew'].apply(lambda x: x['Producer'] if 'Producer' in x.keys() else '')
-    df['editor'] = df['crew'].apply(lambda x: x['Editor'] if 'Editor' in x.keys() else '')
-    df['prooflistener'] = df['crew'].apply(lambda x: x['Prooflistener'] if 'Prooflistener' in x.keys() else '')
+    
+    # get producer lists
+    ep = episodes['crew'].apply(lambda x: ', '.join(x['Executive Producer']) if 'Executive Producer' in x.keys() else '')
+    prod = episodes['crew'].apply(lambda x: ', '.join(x['Producer']) if 'Producer' in x.keys() else '')
+    
+    # merge producer lists
+    df['producer'] = merge_producers(ep, prod)
+    
+    df['editor'] = df['crew'].apply(lambda x: ', '.join(x['Editor']) if 'Editor' in x.keys() else '')
+    df['prooflistener'] = df['crew'].apply(lambda x: ', '.join(x['Prooflistener']) if 'Prooflistener' in x.keys() else '')
     
     # updates dataframe in place, do not need to return anything
     return 
@@ -339,6 +397,11 @@ def main():
         episodes.loc[i, 'producer'] = row['producer']
         episodes.loc[i, 'editor'] = row['editor']
         episodes.loc[i, 'prooflistener'] = row['prooflistener']
+
+    # fix typo
+    for i in np.where(episodes['producer']=='Mike RapinEditor, Zander Riggs')[0]:
+        episodes.loc[i, 'producer'] = 'Mike Rapin'
+        episodes.loc[i, 'editor'] = 'Zander Riggs'
       
 
     # save to file for manual review
