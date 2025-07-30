@@ -2,14 +2,15 @@ This repo contains the following scripts and data:
 
 * `get_rss.py` : Downloads all data (episodes) from public RSS feed. Saves as `public_feed.json`
 
-* `get_episodes.py` : Parses RSS feed (`public_feed.json`) to create table of episode metadata. Saves as `tables/public_feed_episodes.xlxs`. Includes meta data for list of all (N=513) public episodes.
+* `get_episodes.py` : Parses RSS feed (`public_feed.json`) to create table of episode metadata. Saves as `tables/public_feed_episodes.xlxs`. Includes metadata for all public episodes.
 
-* `get_comic_timestamps.py` : Parses RSS feed (`public_feed.json`) to create a table of comics with timestamps associated with them. Saves as `tables/public_feed_comics_timestamps.xlsx`. Includes data for N=1139 comics. Filtered with the intention to only capture items a person may be searching (eg, comic names or franchises). 
+* `get_comic_timestamps.py` : Parses RSS feed (`public_feed.json`) to create a table of comics with timestamps associated with them. Saves as `tables/public_feed_comics_timestamps.xlsx`. Filtered with the intention to only capture items a person may be searching (eg, comic names or franchises). 
 
-* `get_comic_bullets.py` : Parses RSS feed (`public_feed.json`) to create a table of all comics named in an episode. Merges in comics with timestamps. Saves as `tables/public_feed_comics_ALL.xlsx`. Includes N=4341 comics.
+* `get_comic_bullets.py` : Parses RSS feed (`public_feed.json`) to create a table of all comics named in an episode. Merges in comics with timestamps. Saves ad `tables/public_feed_comics_ALL.xlsx`. 
 
 * `dedup_comics.py` : Checks for within-episode comic duplicates in `tables/public_feed_comics_ALL.xlsx` and creates a file that can be used to manually check duplicates.
 
+* `update_tables.py` : Collects current RSS feed and updates `tables/public_feed_episodes.xlxs` and `tables/public_feed_comics_ALL.xlsx` to include data from any new episodes.
 
 More details of each of these files and the data extraction process are included below:
 
@@ -55,6 +56,7 @@ _Identifying “comic” titles_
 If a line begins with a timestamp, the text following the timestamp is considered. That text is assumed to not be a comic (eg, is dropped from the table) if it contains any of the following terms. Note that ‘\b’ indicates a word boundary, meaning that only the word itself (not words that contain that word) are dropped.
 
 * last week in comics
+* intro
 * \bstart\b
 * wrap
 * credits

@@ -7,7 +7,8 @@ def get_non_comic_tags():
     
     # search strings for things that are not comic titles
     # compiled by manually inspecting text after timestamps
-    noncomic_tags = ['last week in comics',  
+    noncomic_tags = ['last week in comics',
+                     'intro',
                      '\\bstart\\b',
                      'wrap', 
                      'credits', 
@@ -146,7 +147,6 @@ def parse_episodes(episodes):
 
     print(f'{len(rows)} comics found')
     return rows, dropped
-    
 
 def main():
     # load rss data

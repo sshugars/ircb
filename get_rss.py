@@ -1,6 +1,15 @@
 import feedparser
 import json
 
+def update():
+    # download new data
+    main()
+    
+    # load new data
+    with open('public_feed.json', 'r') as fp:
+        rss = json.loads(fp.read())
+        
+    return rss
 
 def main():
     

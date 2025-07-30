@@ -327,8 +327,8 @@ def parse_crew(df):
     df['crew'] = df['doc'].apply(lambda x: get_crew(x))
     
     # get producer lists
-    ep = episodes['crew'].apply(lambda x: ', '.join(x['Executive Producer']) if 'Executive Producer' in x.keys() else '')
-    prod = episodes['crew'].apply(lambda x: ', '.join(x['Producer']) if 'Producer' in x.keys() else '')
+    ep = df['crew'].apply(lambda x: ', '.join(x['Executive Producer']) if 'Executive Producer' in x.keys() else '')
+    prod = df['crew'].apply(lambda x: ', '.join(x['Producer']) if 'Producer' in x.keys() else '')
     
     # merge producer lists
     df['producer'] = merge_producers(ep, prod)
@@ -338,6 +338,39 @@ def parse_crew(df):
     
     # updates dataframe in place, do not need to return anything
     return 
+    
+def get_names(episodes):
+    counts = get_count(episodes, 'people')
+    
+    # create dict of first_name : full_name
+    full = dict()
+
+    for name_list in episodes['people']:
+        for n in name_list.split(','):
+            name = n.strip()
+            
+            if counts[name] > 2:
+                names = name.split()
+                full[names[0]] = name
+                
+    return full
+
+    
+def update(new, old):
+    full = get_names(old)
+    
+    # for parsing a df of new episodes
+    new['doc'] = [nlp(doc) for doc in new['full_summary']]
+    
+    # inialize matching search
+    init_matcher()
+
+    # extract people and crew roles from text
+    new['people'] = new['doc'].apply(lambda x: get_people(x, full))
+    new['crew'] = new['doc'].apply(lambda x: get_crew(x))
+    parse_crew(new)
+
+    return new[old.columns]
     
 
 def main():
