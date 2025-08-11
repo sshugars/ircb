@@ -4,19 +4,16 @@ This repo contains the following scripts and data:
 
 * `get_episodes.py` : Parses RSS feed (`public_feed.json`) to create table of episode metadata. Saves as `tables/public_feed_episodes.xlxs`. Includes metadata for all public episodes.
 
-* `get_comic_timestamps.py` : Parses RSS feed (`public_feed.json`) to create a table of comics with timestamps associated with them. Saves as `tables/public_feed_comics_timestamps.xlsx`. Filtered with the intention to only capture items a person may be searching (eg, comic names or franchises). 
+* `get_comics.py` : Parses RSS feed (`public_feed.json`) and episode data (`tables/public_feed_episodes.xlxs`) to create a table of comics mentioned in episodes. Comics are identified through timestamps, bullets, and named entity recogninition.  Saves as `tables/public_feed_comics.xlsx`. Manually filtered with the intention to only capture items a person may be searching (eg, comic names or franchises). 
 
-* `get_comic_bullets.py` : Parses RSS feed (`public_feed.json`) to create a table of all comics named in an episode. Merges in comics with timestamps. Saves ad `tables/public_feed_comics_ALL.xlsx`. 
-
-* `dedup_comics.py` : Checks for within-episode comic duplicates in `tables/public_feed_comics_ALL.xlsx` and creates a file that can be used to manually check duplicates.
-
-* `update_tables.py` : Collects current RSS feed and updates `tables/public_feed_episodes.xlxs` and `tables/public_feed_comics_ALL.xlsx` to include data from any new episodes.
+* `update_tables.py` : Collects current RSS feed and updates `tables/public_feed_episodes.xlxs` and `tables/public_feed_comics.xlsx` to include data from any new episodes.
 
 More details of each of these files and the data extraction process are included below:
 
-# public_feed_episodes
+# get_episodes.py -> public_feed_episodes.xlsx
 The RSS feed returns a JSON / dictionary of episode details. All items (episodes, minisodes, etc) are included. Extracted properties and associated fields are as follows. All fields are strings unless noted otherwise.
 
+Fields:
 * **title**: From `episode['title']`
 * **subtitle**: From `episode['subtitle']`
 * **has_timestamps**: Boolean, indicating whether or not the strings “timestamp”, "timecodes", or “00:00:00" appears in the episode’s `full_summary` (see below). 
@@ -44,16 +41,63 @@ All extracted people entries were then manually reviewed against show descriptio
 
 
 
-# public_feed_comic_timestamps
-If an episode of the public RSS feed contains a timestamp (has_timestamp=1), full_summary is parsed to extract timestamp and named items. Numerous exceptions included after field list. All fields are strings.
-* **episode_title**: Matches entry in public_feed_episodes. Technically not needed in this table, but adds character.
-* **show_id**: Matches entry in public_feed_episodes. For joining tables.
-* **comic**: Hopefully, the name of a specific comic or franchise. Definitely the text that follows after the timestamp. Numerous items excluded, details below.
-* **timestamp**: Text from bullet point starting with a numerical character. Typically of form hh:mm:ss.
+# get_comics.py -> public_feed_comics.xlsx
+For each episode, (1) timestamps, (2) items in bulletted lists, and (3) named entities that are a `WORK_OF_ART`, are extracted from the episode description. These items are then merged together and given a timestamp assignment. Items with segment name `Timestamp` have a timestamp directly listed in the episode descriptions. All other timestamps are best guesses as to when a comic was discussed. If no match to a timestamp is possible, segment is labeled "Other" and given timestamp of 00:00:00. Minisodes, which typically don't have timestamps are denoted as such all comics are similarly assigned the timestamp of 00:00:00.
+
+Fields:
+* **episode_title**: Taken from entry in `public_feed_episodes.xlsx`. Technically not needed in this table, but adds character.
+* **show_id**: Taken from entry in `public_feed_episodes.xlsx`. For joining tables.
+* **comic**: Hopefully, the name of a specific comic or franchise. Definitely a string extracted from the show description. Details below.
+* **segment**: The segment in which the comic was (presumably) discussed. Segment name `Timestamp` indicates this comic was listed as its own segment/timestamped item. 
+* **timestamp**: Text form of timestamp in form hh:mm:ss. This is the timestamp associated with the given segment. If segment is `Other` or `Minisode`, timestamp is set to `00:00:00`.
 * **direct_url**: URL to this specific timestamp in the audio. Created as: ‘{simplecast_url}t={h}h{m}m{s}s’ 
 
-_Identifying “comic” titles_
-If a line begins with a timestamp, the text following the timestamp is considered. That text is assumed to not be a comic (eg, is dropped from the table) if it contains any of the following terms. Note that ‘\b’ indicates a word boundary, meaning that only the word itself (not words that contain that word) are dropped.
+Comic extraction is done in three steps:
+(1) Get timestamps from episode
+(2) Get items in bulleted list from "comic" headers
+(3) Extract named entities which are identified as a `WORK_OF_ART`
+
+These items are then merged together to create a single comic list for each episode.
+
+_Extracting text associated with timestamps_
+First we go through the text to create a dictionary indicating the timestamp associated with pieces of text. The `segment` is considered to be the text associated with a timestamp within the episode description. At this stage, we retain all text/segment names whether we think it indicates a comic or not. In the merging stage, we will drop any items that do not appear to be comics.
+
+_Extracting comics from bulleted lists_
+Next, we extract all items from bulleted lists. The `segment` is considered to be the text that immediately precedes the bulleted list. We only keep items where the segment name suggests that this might be a list of comics.
+
+
+Specifically, items in bulleted lists were retained if their `segment` included any of the following terms:
+
+* discussed 
+* comic picks
+* comics read
+* comic reads
+* what we read
+* picks for this week
+* recommendations 
+* recommended
+* comics mentioned
+* manga mentioned
+* reading next
+* top of our pile
+* top of my pile
+* top of your pile
+* comics we loved
+* top comics
+* what we read
+
+This list of terms was determined through a manual process in which all text appearing in bold (\<strong\>) was extracted from every episode description. Segment names typically, but not always, appear in bold within the episode summaries. These possible segment names were manually reviewed to identify those relating to comics. This resulted in about 45 unique comic-related segment names across public episodes. Since this wasn’t necessarily a complete list of all comic-related segment names (eg, names that did not appear in bold), this list was used to develop the above search string for segment names. 
+
+_Extracting Named Entities_
+Finally, Spacy was used to identify all named entities in the episode description identified as a `WORK_OF_ART`. Episode text cut off the "credits" to avoid identifying named entities in that portion of the text.
+
+
+_Merging comic sources_
+Finally, these three sources of comic names were merged together. First, the `segments` associated with bulleted lists of comics in the episode description were matched to segments named in the timestamps of the episode. For example, if a bulleted list was preceded with the text "Top of Our Pile" this segment might be matched to a timestamped segment named "Top of the Pile". Comics were always matched to the timestamp segment with the closest semantic similarity. This means that text did not need to be an exact match and that all comics were matched to some timestamped item.
+
+Next, the name of a comic from a bullet was compared to the name of its segment. If these had high semantic similarity, it suggests the "segment" was actually just the name of the comic and that comic was given its own timestamp. In this case, the segment name was updated to "Timestamps" and the comic name as it appeared in the bulleted list was retained. 
+
+In the next phase, we add items extracted by timestamp. Any timestamp item that was already added to our list of comics through the above process was skipped. Here, we recognize that we may encounter text associated with a timestamp that does not represent a comic. We therefore drop any timestamped "segments" that contain any of the following terms. Note that ‘\b’ indicates a word boundary, meaning that only the word itself (not words that contain that word) are dropped.
 
 * last week in comics
 * intro
@@ -76,67 +120,12 @@ If a line begins with a timestamp, the text following the timestamp is considere
 * listener 
 * been digging
 
-Excluded text (137 entries) was manually inspected to confirm it did not appear to be the title of a comic or comic property. This process resulted in 1323 rows of possible comic names associated with timestamps. Happy to share this full list if that would be helpful.
+Finally, we check if any `WORK_OF_ART` has high semantic similarity with a comic we have already identified. If not, that means this work is not yet in the list for this episode. We add it with the segment name "Other" and Timestamp 00:00:00. This primarily serves to identify comics in the episode title (eg, especially for minisodes and bonus episodes) as well as Kickstarters and other works promoted in the episode but not given an official timestamp.
 
-These were manually inspected to remove additional non-comic entities. Particularly in the older episodes, the text associated with timestamps were frequently not names of comics or comic properties (though I was, for a moment, hopeful that there was a cross-over called Gambit: Broke-ass Batman”). If possible, text descriptions were replaced by the names of specific comics or comic franchises discussed. This resulted in this final list of 1,139 comics mentioned in episodes and affiliated with a timestamp.
+_Comic data cleaning_
+The resulting table of comics was then manually inspected and cross-checked against the episode description to ensure that items were indeed comics or related franchises/properties, as well as to check the timestamp associated with the item. Note that in many earlier episodes, "Comic Reads/Picks for this week" were included in a single bulleted list. Therefore, these items were assigned the segment "Start/Last Week in Comics" and given the timestamp 00:00:00, even though the comics were discussed over different timestamps.
 
-
-Two particular titles of note:
-* “CONCENTRATED BOOMER ENERGY: DO NOT READ” was replaced with the comic title “Cancel America #1”. I left this in, but one might be inclined to drop it altogether.
-* “Batman Fell In Love With a Ghost Lady” was left as-is. I’m pretty sure this refers to Batman #227 (Dec 1970), but the art from the comic (in which Batman does fall in love with a ghost) doesn’t seem to match the episode art, so I wasn’t sure.
 
 Additional notes: 
-* I realized after doing this that the way I parsed the timestamps + text doesn’t work for older episodes:
-  * Episodes 128 and earlier use ‘*’ instead of \<li\> bullets
-  * Some episodes, possibly just #85, put the text before the timestamp. 
-I can re-do the parse to account for this, but the text associated with older episode timestamps is frequently not comic titles, so I’m not sure it's worth doing.
-
-
 * I left all capitalization as-is. Titles not intended to be in all-caps could be auto-turned into Title Case, but that will mess up titles intended to be in all-caps. May want to look more closely to determine if manual or automated is less trouble
 
-# public_feed_comics_ALL
-For each episode of the public RSS, text was parsed to try to identify comic titles. Timestamps were explicitly ignored in this parse, as titles included in public_feed_comic_timestamps were later merged back in. All fields are strings.
-
-* **episode_title**: Matches entry in public_feed_episodes. Technically not needed in this table, but adds character.
-* **show_id**: Matches entry in public_feed_episodes. For joining tables.
-* **comic**: Text extracted from show summary. Details below.
-* **segment**: Text introducing list of (presumed) comic titles. Set to “Timestamps” for all titles merged from  public_feed_comic_timestamps
-* **timestamp**: Empty field unless entry merged from  public_feed_comic_timestamps
-* **direct_url**:  Empty field unless entry merged from  public_feed_comic_timestamps. Could have include the general episode URL for other titles, but that can be merged in from the episode table if needed
-
-_Extracting comic names from summary_
-
-**Step 1: Identifying episode segments**
-Episode summaries typically include multiple bulleted lists. For example, (1) Timestamps, (2) Comics Discussed, and (3) Relevant Links. We consider any text followed by a bulleted list to be a “segment.” 
-
-For the purposes of this list, we want to ignore the “Timestamp” segment (merged in later from public_feed_comic_timestamps) as well as any non-comic segments (eg, “Relevant Links”). To identify relevant segments, first all text appearing in bold (\<strong\>) was extracted from every public episode. Segment names typically, but not always, appear in bold within the episode summaries. These possible segment names were extracted and manually reviewed to identify those relating to comics. This resulted in about 45 unique comic-related segment names across public episodes. Since this wasn’t necessarily a complete list of all comic-related segment names (eg, names that did not appear in bold), this list was used to develop a search string for segment names. Ultimately, a piece of text (whether bold or not) was assumed to be introducing a comic-related segment if it included any of the following terms:
-
-* discussed (Note: resulted in some false positives, these were manually removed)
-* comic picks
-* comics read
-* comic reads
-* what we read
-* picks for this week
-* recommendations (Note: false positives manually removed)
-* recommended
-* comics mentioned
-* manga mentioned
-* reading next
-* top of our pile
-* top of my pile
-* top of your pile
-* comics we loved
-* top comics
-* what we read
-
-**Step 2: Extracting comic names**
-Once a comic-related segment is identified, the following block of text is parsed for comic names.
-Episodes 128 and earlier: script extracts text following a ‘*’ character
-Newer episodes: script extracts text in \<li\> tags. Note: if the list includes a sublist, only sub items are included. 
-
-**Step 3: Merging with timestamps**
-The table of extracted comic items was then stacked with the cleaned table of comics with timestamps. For rows where the show_id and comic were an exact match, only the last row (from the timestamps table) was retained. Comic names within episodes were then dedupted using `dedup_comics.py`.
-
-Additional notes:
-* At least one episode has the mentioned books in the links section. These would be excluded given the process above.
-* May make sense to make a list of episodes with no comics listed and then manually review. Many of these are specials/minisodes, but there are probably a few others missed through the above process. 

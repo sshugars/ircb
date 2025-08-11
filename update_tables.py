@@ -3,11 +3,11 @@ import pandas as pd
 # custom scripts
 import get_rss
 import get_episodes
-import get_comic_timestamps as get_comics
+import get_comics
 
 
 ### global variables ###
-comic_file = 'tables/public_feed_comics_ALL.xlsx'
+comic_file = 'tables/public_feed_comics.xlsx'
 episode_file = 'tables/public_feed_episodes.xlsx'
 
 def main():
@@ -30,10 +30,10 @@ def main():
 	##### update Episode table
 
 	# identify new episodes
-	new = df[~df['show_id'].isin(episodes['show_id'])].copy()
+	new_df = df[~df['show_id'].isin(episodes['show_id'])].copy()
 
 	# full parse for new episodes only
-	new = get_episodes.update(new, episodes)
+	new = get_episodes.update(new_df, episodes)
 
 	updated_episodes = pd.concat([new, episodes])
 
@@ -45,14 +45,16 @@ def main():
 	###### update Comics table
 
 	# episodes we need to get comics from
-	new_eps = dict((i, details) for i, details in rss.items() if int(i) in new.index)
-	rows, dropped = get_comics.parse_episodes(new_eps)
+	new_rss = dict((i, details) for i, details in rss.items() if int(i) in new.index)
+	rows = get_comics.parse_episodes(new_rss, new_df)
 
 	# insert 'Timestamps' as segment 
 	# note: rows updated in place
-	__ = [row.insert(3, 'Timestamps') for row in rows]
+#	__ = [row.insert(3, 'Timestamps') for row in rows]
 
 	# convert to dataframe
+	#print(rows[0])
+	#print(comics.columns)
 	new_comics = pd.DataFrame(rows, columns=comics.columns)
 
 	updated_comics = pd.concat([new_comics, comics])
