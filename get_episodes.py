@@ -146,7 +146,7 @@ def parse_episodes(rss):
 
         else:
             # if all else fails, estimate a value
-            episode_num = 78 - int(i) + 400
+            episode_num = 496
 
         # create row of data for this episode
         row = [title, subtitle, has_timestamps,
