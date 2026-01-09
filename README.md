@@ -1,4 +1,15 @@
-This repo contains the following scripts and data:
+# Data
+Data is available in the `tables` folder and is organized into two files:
+
+* `all_epidodes.xlxs` : Contains details for all public and Patreon IRCB episodes since Ep. 4. Note that Patreon data does not auto-update and is currently only updated through Dec 7, 2025 (Wic+Div Uncovered \#9)
+
+* `public_feed_comics.xlsx` : Lists specific comics mentioned by episode, using only public feed data. Details on parsing process described below. When possible, a link to the timestamp of comic discussion is included.
+
+
+
+# Code
+
+This repo contains the following scripts:
 
 * `get_rss.py` : Downloads all data (episodes) from public RSS feed. Saves as `public_feed.json`
 

@@ -189,11 +189,13 @@ def get_count(df, col):
     counts = dict()
 
     for i, name_list in df[col].items():
-        for n in name_list.split(','):
-            name = n.strip()
+        # only if we have text to parse
+        if isinstance(name_list, str):
+            for n in name_list.split(','):
+                name = n.strip()
 
-            counts.setdefault(name, 0)
-            counts[name] += 1
+                counts.setdefault(name, 0)
+                counts[name] += 1
             
     return counts
 
@@ -346,12 +348,14 @@ def get_names(episodes):
     full = dict()
 
     for name_list in episodes['people']:
-        for n in name_list.split(','):
-            name = n.strip()
-            
-            if counts[name] > 2:
-                names = name.split()
-                full[names[0]] = name
+        # only if we have text to parse
+        if isinstance(name_list, str):
+            for n in name_list.split(','):
+                name = n.strip()
+
+                if counts[name] > 2:
+                    names = name.split()
+                    full[names[0]] = name
                 
     return full
 
