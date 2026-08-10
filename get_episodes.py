@@ -14,6 +14,15 @@ from spacy.tokens.span import Span
 nlp = spacy.load('en_core_web_trf')
 matcher = Matcher(nlp.vocab)
 
+# JOIN_RE finds the bit that introduces people like "Mike is joined by"
+# TOPIC_RE finds where a sentence stops being about who is here and starts
+# being about what we read
+JOIN_RE = re.compile(
+    r'\b(join(?:ed|s|ing)?|talks? (?:to|with)|welcome[sd]?|special guests?|guests?'
+    r'|sits? down with|chats? with|interviews? with|hosted by)\b', re.I)
+
+TOPIC_RE = re.compile(r'\bto (?:talk|discuss|chat|cover|review)\b|\babout\b|\bfrom\b', re.I)
+
 @Language.component('no_possesive')
 def no_possesive(doc):
     doc.ents = _no_possesive_generator(doc)
@@ -201,7 +210,32 @@ def get_count(df, col):
     return counts
 
 
-def get_people(x, full):
+def is_corroborated(name, text, title, full):
+    """True if something in the episode says this person was actually on it
+
+    Either we already know them, or the title names them, or a joining phrase
+    introduces them with no topic word in between. That last one matters because
+    "joined by Rachel Merrill" and "a book by Post Malone" look the same otherwise
+    """
+    if name in full or name in set(full.values()):
+        return True
+    title = (title or '').lower()
+    if title and (name.lower() in title or name.split()[-1].lower() in title):
+        return True
+    start = text.find(name)
+    if start < 0:
+        return True
+    end = start + len(name)
+    for m in JOIN_RE.finditer(text):
+        j = m.start()
+        if 0 <= start - j <= 120 and not TOPIC_RE.search(text[j:start]):
+            return True
+        if 0 <= j - end <= 40:
+            return True
+    return False
+
+
+def get_people(x, full, title=''):
     '''
     Extract host names from summary
     '''
@@ -248,6 +282,10 @@ def get_people(x, full):
                             people.add(name)
                             
                             
+    # drop anyone the episode does not back up
+    # this runs after the loop above so it can only take names out never add them
+    people = {n for n in people if is_corroborated(n, x.text, title, full)}
+
     # sort found people by last name
     people_dict = dict((name.split()[-1], name) for name in people)
     people_sorted = [name for l,name in sorted(people_dict.items())]
@@ -371,7 +409,7 @@ def update(new, old):
     init_matcher()
 
     # extract people and crew roles from text
-    new['people'] = new['doc'].apply(lambda x: get_people(x, full))
+    new['people'] = new.apply(lambda r: get_people(r['doc'], full, r['title']), axis=1)
     new['crew'] = new['doc'].apply(lambda x: get_crew(x))
     parse_crew(new)
 
@@ -414,7 +452,7 @@ def main():
     episodes['doc'] = [nlp(doc) for doc in episodes['full_summary']]
 
     # extract people and crew roles from text
-    episodes['people'] = episodes['doc'].apply(lambda x: get_people(x, full))
+    episodes['people'] = episodes.apply(lambda r: get_people(r['doc'], full, r['title']), axis=1)
     episodes['crew'] = episodes['doc'].apply(lambda x: get_crew(x))
     parse_crew(episodes)
 
