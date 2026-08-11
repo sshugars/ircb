@@ -23,6 +23,9 @@ JOIN_RE = re.compile(
 
 TOPIC_RE = re.compile(r'\bto (?:talk|discuss|chat|cover|review)\b|\babout\b|\bfrom\b', re.I)
 
+# FT_RE pulls the guest credit out of a title like "Some Joke (ft. Cavan Scott, Shadow Service)"
+FT_RE = re.compile(r'\(\s*(?:ft\.?|feat\.?|featuring)\s+([^)]+)\)', re.I)
+
 @Language.component('no_possesive')
 def no_possesive(doc):
     doc.ents = _no_possesive_generator(doc)
@@ -210,6 +213,40 @@ def get_count(df, col):
     return counts
 
 
+def title_guests(title, full):
+    """Names the title credits in a (ft. ...) parenthetical
+
+    The summary search gives up early: it stops once it has three names and again
+    at the first creative work it meets. A guest introduced in a later sentence is
+    never reached, so 11 episodes credit someone in the title who is missing from
+    people. The title is the one place the show names its guests on purpose, so
+    it is worth reading directly
+    """
+    m = FT_RE.search(title or '')
+
+    if not m:
+        return set()
+
+    found = set()
+
+    for ent in nlp(m.group(1)).ents:
+        if ent.label_ == 'PERSON':
+            name = ent.text
+            names = name.split()
+
+            # same one-name rule as the summary search, so a bare "Kev" only counts
+            # if we already know who that is
+            if len(names) == 1:
+                name = full.get(names[0])
+
+                if not name:
+                    continue
+
+            found.add(name)
+
+    return found
+
+
 def is_corroborated(name, text, title, full):
     """True if something in the episode says this person was actually on it
 
@@ -282,6 +319,9 @@ def get_people(x, full, title=''):
                             people.add(name)
                             
                             
+    # add anyone the title credits that the search above stopped short of
+    people |= title_guests(title, full)
+
     # drop anyone the episode does not back up
     # this runs after the loop above so it can only take names out never add them
     people = {n for n in people if is_corroborated(n, x.text, title, full)}
