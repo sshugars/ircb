@@ -151,11 +151,13 @@ def get_timestamps(soup, url):
                         rest = 'Everyone Is Tulip'
                     elif rest == 'Interview with David Pepose, writer for Spencer and Locke':
                         rest = 'Spencer and Locke'
-                        
-                # save timestamp and label to dictionary
-                timestamps[rest] =  {'segment': 'Timestamps',
-                                     'timestamp': clean_stamp,
-                                     'direct_url':f'{url}?t={timestamp}'}
+
+                    # save timestamp and label to dictionary
+                    # this used to sit one indent out, so items that aren't timestamps
+                    # saved a row too, under the previous label and over its time
+                    timestamps[rest] =  {'segment': 'Timestamps',
+                                         'timestamp': clean_stamp,
+                                         'direct_url':f'{url}?t={timestamp}'}
      
     # if we haven't found timestamps
     if len(timestamps) == 0:
