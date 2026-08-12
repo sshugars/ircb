@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 import pandas as pd
@@ -13,6 +14,9 @@ nlp = spacy.load("en_core_web_trf")
 old_format_start = datetime(2017, 9, 20).date()
 # episodes before Sept 20, 2017 had a different format
 # data needs to be extracted differently
+
+# a line starting with hh:mm:ss or mm:ss and then a dash
+stamp_line = re.compile(r'^\d{1,2}:\d{2}(?::\d{2})?\s*[-–—]')
 
 
 def get_comic_heads():
@@ -72,13 +76,46 @@ def get_non_comic_tags():
 
 
 
+def promote_br_timestamps(soup):
+    # turn a <p>00:00:00 - Title<br>00:01:23 - Title</p> block into a <ul> of <li>,
+    # so the search below reads it like any other timestamp list
+    #
+    # notes used <ul><li> from Sept 2017 through 2025 and moved to <br> in 2026
+    # the <ul> search can't see those, so they drop to the line scanner further down,
+    # which finds fewer segments and cuts a label at its first dash
+
+    for p in soup.find_all('p'):
+        if not p.find('br'):
+            continue
+
+        lines = [line.strip() for line in p.get_text('\n').split('\n') if line.strip()]
+
+        # take the paragraph only if every line is a timestamp
+        if len(lines) < 2 or not all(stamp_line.match(line) for line in lines):
+            continue
+
+        new_list = soup.new_tag('ul')
+
+        for line in lines:
+            item = soup.new_tag('li')
+            item.string = line
+            new_list.append(item)
+
+        p.replace_with(new_list)
+
+    return soup
+
+
 def get_timestamps(soup, url):
     # extract text after timestamps for a given episode
 
     timestamps = dict()
 
     heads = get_comic_heads() # search string for comic headers
-    
+
+    # work on a copy, parse_episodes hands this same soup to get_bullets after
+    soup = promote_br_timestamps(copy.copy(soup))
+
     # first, look for bulletted lists
     for item in soup.find_all('ul'):
 
